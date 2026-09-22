@@ -633,14 +633,15 @@ bool AudioService::PlayPcm(std::vector<int16_t>&& pcm) {
         return true;
     }
     std::unique_lock<std::mutex> lock(audio_queue_mutex_);
-    const uint32_t generation = playback_generation_;
-    // 播放队列很浅，满了就等它被 AudioOutputTask 消费——天然按实时播放节流，
-    // 不会一次性灌爆内存；被 StopMusic/打断(播放代变化)或服务停止则放弃。
-    audio_queue_cv_.wait(lock, [this, generation]() {
-        return service_stopped_.load() || generation != playback_generation_ ||
+    // 音乐是长流，只用 music_active_ 判活，不再受 playback_generation_ 影响：
+    // 语音交互(进入聆听会 EnableVoiceProcessing->ResetDecoder 递增播放代并清队列)
+    // 只会造成极短的音乐顿挫，不再误杀 worker。只有 StopMusic(music_active_=false)
+    // 或服务停止才真正结束喂数据。队列满则等待消费，天然按实时节流。
+    audio_queue_cv_.wait(lock, [this]() {
+        return service_stopped_.load() || !music_active_.load() ||
                audio_playback_queue_.size() < MAX_PLAYBACK_TASKS_IN_QUEUE;
     });
-    if (service_stopped_.load() || generation != playback_generation_) {
+    if (service_stopped_.load() || !music_active_.load()) {
         return false;
     }
     AudioTask task;

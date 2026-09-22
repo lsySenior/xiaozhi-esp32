@@ -15,6 +15,7 @@
 #include "esp_ae_rate_cvt.h"
 #include "simple_dec/esp_audio_simple_dec.h"
 #include "simple_dec/esp_audio_simple_dec_default.h"
+#include "decoder/esp_audio_dec_default.h"
 
 #define TAG "MusicPlayer"
 
@@ -120,6 +121,11 @@ void MusicPlayer::WorkerTask() {
     auto& audio = Application::GetInstance().GetAudioService();
     audio.SetMusicActive(true);
     if (!g_dec_registered.exchange(true)) {
+        // simple_dec 只注册容器/简单解码器(m4a/ogg/wav...)，MP3/AAC 等裸流解码器
+        // 由底层 esp_audio_dec 注册。缺了它会报 "Decoder MP3 not registered"，
+        // 故先注册底层默认解码器，再显式补一遍 MP3(不依赖 menuconfig 开关)。
+        esp_audio_dec_register_default();
+        esp_mp3_dec_register();
         esp_audio_simple_dec_register_default();
     }
 
@@ -141,7 +147,9 @@ void MusicPlayer::WorkerTask() {
                 std::array<char, 2048> buf;
                 bool eof = false;
                 while (running_.load() && !eof) {
-                    if (IsPaused()) {
+                    if (user_paused_.load()) {
+                        // 用户主动暂停才停读 socket；播报 Duck 不停读(见下方丢帧)，
+                        // 否则暂停几秒会把直链连接拖死、播报结束无法续播。
                         vTaskDelay(pdMS_TO_TICKS(50));
                         continue;
                     }
@@ -166,7 +174,7 @@ void MusicPlayer::WorkerTask() {
                     }
                     // 解码 inbuf 里已凑齐的帧，逐帧下混+重采样后送播放队列。
                     size_t offset = 0;
-                    while (running_.load() && !IsPaused() && offset < inbuf.size()) {
+                    while (running_.load() && !user_paused_.load() && offset < inbuf.size()) {
                         esp_audio_simple_dec_raw_t raw = {};
                         raw.buffer = inbuf.data() + offset;
                         raw.len = (uint32_t)(inbuf.size() - offset);
@@ -184,7 +192,9 @@ void MusicPlayer::WorkerTask() {
                             break;
                         }
                         offset += raw.consumed;
-                        if (out.decoded_size > 0) {
+                        if (out.decoded_size > 0 && !ducked_.load()) {
+                            // Duck 期间(TTS 播报)照常解码推进，但丢弃这几秒音频不送喇叭，
+                            // 让出播放通道给 TTS；播报结束 Unduck 后无缝续播。
                             if (src_rate == 0) {
                                 esp_audio_simple_dec_info_t info = {};
                                 esp_audio_simple_dec_get_info(dec, &info);
