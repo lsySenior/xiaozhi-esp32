@@ -29,3 +29,15 @@ CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE=1536
 
 # LVGL Graphics
 CONFIG_LV_USE_SNAPSHOT=y
+
+# --- 自建 voice-agent 服务器 ---
+# 以下是本 fork 相对上游的全部差异。都放在 defaults 里而不是改 C++：
+# 上游的 OTA 接口本身就是服务发现（响应里的 websocket 段会被写进设备 NVS），
+# 所以把 OTA_URL 指向自建服务即可，不必去改 application.cc / websocket_protocol.cc。
+# 本仓库把 sdkconfig 加进了 .gitignore，defaults 才是能进版本控制的那一层；
+# 已有 sdkconfig 时它不生效，set-target 或换机器重新生成时才套用。
+CONFIG_BOARD_TYPE_LICHUANG_DEV_S3=y
+# 设备端 AEC：回声消除交给设备做，播报时也能收音，支持说话打断。
+# 它在 Kconfig 里挂了板子白名单依赖，所以必须和上面的板型一起设置。
+CONFIG_USE_DEVICE_AEC=y
+CONFIG_OTA_URL="http://118.196.38.96:8080/xiaozhi/ota/"
