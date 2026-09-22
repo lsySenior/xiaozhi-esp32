@@ -18,6 +18,7 @@
 #include "lvgl_image.h"
 #include "lvgl_theme.h"
 #include "settings.h"
+#include "alarm/alarm_manager.h"
 
 #define TAG "MCP"
 
@@ -57,6 +58,37 @@ void McpServer::AddCommonTools() {
                 auto codec = board.GetAudioCodec();
                 codec->SetOutputVolume(properties["volume"].value<int>());
                 return true;
+            });
+
+    // 一次性闹钟：设备端计时 + 到点响铃，不依赖云端定时。seconds 为从现在起的秒数
+    // （由云端把"20分钟后/明早7点"换算好再下发）。这几个工具是设备通用能力（仅用音频），
+    // 故放在通用工具里而非某块板子的 InitializeTools。
+    AddTool("self.alarm.set_once",
+            "设置一次性闹钟，在 seconds 秒后响铃提醒（到点设备本地播提示音）。"
+            "seconds 为从现在起的秒数；label 为提醒内容（可选）。返回含 id 的 JSON。",
+            PropertyList({Property("seconds", kPropertyTypeInteger, 1, 604800),
+                          Property("label", kPropertyTypeString, std::string(""))}),
+            [](const PropertyList& properties) -> ReturnValue {
+                int seconds = properties["seconds"].value<int>();
+                std::string label = properties["label"].value<std::string>();
+                int id = AlarmManager::GetInstance().SetOnce(seconds, label);
+                if (id < 0) {
+                    return std::string("{\"ok\":false}");
+                }
+                return std::string("{\"ok\":true,\"id\":") + std::to_string(id) + "}";
+            });
+
+    AddTool("self.alarm.cancel", "取消指定 id 的闹钟。",
+            PropertyList({Property("id", kPropertyTypeInteger, 1, 1000000)}),
+            [](const PropertyList& properties) -> ReturnValue {
+                bool ok = AlarmManager::GetInstance().Cancel(properties["id"].value<int>());
+                return std::string(ok ? "{\"ok\":true}" : "{\"ok\":false}");
+            });
+
+    AddTool("self.alarm.list",
+            "列出当前所有未触发的闹钟，返回 JSON 数组（含 id、剩余秒数 in_seconds、label）。",
+            PropertyList(), [](const PropertyList& properties) -> ReturnValue {
+                return AlarmManager::GetInstance().ListJson();
             });
 
     auto backlight = board.GetBacklight();

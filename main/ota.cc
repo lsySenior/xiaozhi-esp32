@@ -2,6 +2,7 @@
 #include "system_info.h"
 #include "settings.h"
 #include "assets/lang_config.h"
+#include "alarm/alarm_manager.h"
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -210,6 +211,8 @@ NetworkResult<> Ota::CheckVersion() {
             tv.tv_usec = (suseconds_t)((long long)ts % 1000) * 1000;  // 剩余的毫秒转换为微秒
             settimeofday(&tv, NULL);
             has_server_time_ = true;
+            // 系统时间刚校准，重排持久化的一次性闹钟（关机期间错过的会被丢弃）。
+            AlarmManager::GetInstance().Load();
         }
     } else {
         ESP_LOGW(TAG, "No server_time section found!");
