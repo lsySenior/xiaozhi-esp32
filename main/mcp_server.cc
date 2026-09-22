@@ -19,6 +19,7 @@
 #include "lvgl_theme.h"
 #include "settings.h"
 #include "alarm/alarm_manager.h"
+#include "audio/music_player.h"
 
 #define TAG "MCP"
 
@@ -89,6 +90,31 @@ void McpServer::AddCommonTools() {
             "列出当前所有未触发的闹钟，返回 JSON 数组（含 id、剩余秒数 in_seconds、label）。",
             PropertyList(), [](const PropertyList& properties) -> ReturnValue {
                 return AlarmManager::GetInstance().ListJson();
+            });
+
+    // 音乐播放：设备端从 url 拉流解码播放（mp3/m4a）。url 由云端搜索/代理后下发，
+    // 应是可直接 HTTP 拉取的音频直链。与语音播报时分复用同一扬声器。
+    AddTool("self.music.play", "播放指定 url 的音乐（设备端拉流解码）。url 为可直接拉取的音频直链。",
+            PropertyList({Property("url", kPropertyTypeString)}),
+            [](const PropertyList& properties) -> ReturnValue {
+                auto url = properties["url"].value<std::string>();
+                bool ok = MusicPlayer::GetInstance().Play(url);
+                return std::string(ok ? "{\"ok\":true}" : "{\"ok\":false}");
+            });
+    AddTool("self.music.pause", "暂停音乐播放。", PropertyList(),
+            [](const PropertyList& properties) -> ReturnValue {
+                MusicPlayer::GetInstance().Pause();
+                return true;
+            });
+    AddTool("self.music.resume", "继续播放音乐。", PropertyList(),
+            [](const PropertyList& properties) -> ReturnValue {
+                MusicPlayer::GetInstance().Resume();
+                return true;
+            });
+    AddTool("self.music.stop", "停止音乐播放。", PropertyList(),
+            [](const PropertyList& properties) -> ReturnValue {
+                MusicPlayer::GetInstance().Stop();
+                return true;
             });
 
     auto backlight = board.GetBacklight();

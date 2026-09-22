@@ -2,6 +2,7 @@
 #include "assets.h"
 #include "assets/lang_config.h"
 #include "audio_codec.h"
+#include "audio/music_player.h"
 #include "board.h"
 #include "cjson_utils.h"
 #include "display.h"
@@ -624,10 +625,12 @@ void Application::InitializeProtocol() {
             if (strcmp(state->valuestring, "start") == 0) {
                 Schedule([this]() {
                     aborted_ = false;
+                    MusicPlayer::GetInstance().Duck();  // 播报期间让路，避免与 TTS 抢播放队列
                     SetDeviceState(kDeviceStateSpeaking);
                 });
             } else if (strcmp(state->valuestring, "stop") == 0) {
                 Schedule([this]() {
+                    MusicPlayer::GetInstance().Unduck();  // 播报结束恢复音乐（用户主动暂停的仍保持暂停）
                     if (GetDeviceState() == kDeviceStateSpeaking) {
                         if (listening_mode_ == kListeningModeManualStop) {
                             SetDeviceState(kDeviceStateIdle);

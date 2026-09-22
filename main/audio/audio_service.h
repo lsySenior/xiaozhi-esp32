@@ -144,6 +144,14 @@ public:
     bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait = false);
     std::unique_ptr<AudioStreamPacket> PopPacketFromSendQueue();
     void PlaySound(const std::string_view& sound);
+    // 音乐播放：把已解码/重采样为 codec 输出采样率的单声道 PCM 直接压入播放队列，
+    // 复用现有 I2S/codec 输出任务。队列很浅(MAX_PLAYBACK_TASKS_IN_QUEUE)，满则阻塞
+    // 等待，天然按实时播放节流。返回 false 表示已停止/被打断(播放代已变)，调用方应停止喂数据。
+    bool PlayPcm(std::vector<int16_t>&& pcm);
+    // 停止音乐：清空播放队列并递增播放代，使正在喂数据的 MusicPlayer 感知到并退出。
+    void StopMusic();
+    bool IsMusicActive() const { return music_active_.load(); }
+    void SetMusicActive(bool active) { music_active_.store(active); }
     bool ReadAudioData(std::vector<int16_t>& data, int sample_rate, int samples);
     void ResetDecoder();
     void SetModelsList(srmodel_list_t* models_list);
@@ -199,6 +207,7 @@ private:
 
     bool audio_engine_initialized_ = false;
     bool voice_detected_ = false;
+    std::atomic<bool> music_active_{false};
 #if CONFIG_USE_DEVICE_AEC
     bool device_aec_enabled_ = true;
 #else

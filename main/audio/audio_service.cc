@@ -628,6 +628,35 @@ bool AudioService::PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> pa
     return true;
 }
 
+bool AudioService::PlayPcm(std::vector<int16_t>&& pcm) {
+    if (pcm.empty()) {
+        return true;
+    }
+    std::unique_lock<std::mutex> lock(audio_queue_mutex_);
+    const uint32_t generation = playback_generation_;
+    // 播放队列很浅，满了就等它被 AudioOutputTask 消费——天然按实时播放节流，
+    // 不会一次性灌爆内存；被 StopMusic/打断(播放代变化)或服务停止则放弃。
+    audio_queue_cv_.wait(lock, [this, generation]() {
+        return service_stopped_.load() || generation != playback_generation_ ||
+               audio_playback_queue_.size() < MAX_PLAYBACK_TASKS_IN_QUEUE;
+    });
+    if (service_stopped_.load() || generation != playback_generation_) {
+        return false;
+    }
+    AudioTask task;
+    task.type = kAudioTaskTypeDecodeToPlaybackQueue;
+    task.pcm = std::move(pcm);
+    playback_drained_notified_ = false;
+    audio_playback_queue_.push_back(std::move(task));
+    audio_queue_cv_.notify_all();
+    return true;
+}
+
+void AudioService::StopMusic() {
+    music_active_.store(false);
+    ResetDecoder();  // 递增播放代并清空解码/播放队列，喂数据方会看到代变化而退出
+}
+
 std::unique_ptr<AudioStreamPacket> AudioService::PopPacketFromSendQueue() {
     std::lock_guard<std::mutex> lock(audio_queue_mutex_);
     if (audio_send_queue_.empty()) {
